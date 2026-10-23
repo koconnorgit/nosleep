@@ -143,6 +143,33 @@ def _install_signal_handlers(qapp: QApplication) -> tuple:
     return notifier, rsock, wsock
 
 
+def _hand_off_to_service() -> bool:
+    """`nosleep --settings` from the launcher: prefer the systemd service instance.
+
+    If the unit is installed, (re)start it and ask it to show settings, so the
+    launcher never ends up running a second, unmanaged tray instance.
+    """
+    import time
+
+    from .settings_ui import service_installed, start_service
+
+    if client_interface() is None:
+        if not service_installed():
+            return False
+        if not start_service():
+            return False
+        for _ in range(50):  # up to ~10 s for the service to own the name
+            time.sleep(0.2)
+            if client_interface() is not None:
+                break
+        else:
+            log.warning("service started but never claimed %s — running in-process", DBUS_NAME)
+            return False
+    log.info("nosleep service is running — asking it to show settings")
+    call_running("ShowSettings")
+    return True
+
+
 def client_interface() -> QDBusInterface | None:
     """Interface to a running instance, or None if nothing owns the name."""
     bus = QDBusConnection.sessionBus()
@@ -168,6 +195,8 @@ def run_tray(open_settings: bool = False) -> int:
     if not bus.isConnected():
         log.error("no session bus — cannot run")
         return 1
+    if open_settings and _hand_off_to_service():
+        return 0
     if not bus.registerService(DBUS_NAME):
         log.info("nosleep is already running — asking it to show settings")
         iface = client_interface()

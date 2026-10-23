@@ -53,6 +53,14 @@ def set_service_enabled(enabled: bool) -> bool:
     return ok
 
 
+def start_service() -> bool:
+    r = _systemctl("start", SERVICE)
+    ok = bool(r and r.returncode == 0)
+    if not ok:
+        log.warning("could not start %s: %s", SERVICE, (r.stderr.strip() if r else "systemctl unavailable"))
+    return ok
+
+
 def _qtime(t: time) -> QTime:
     return QTime(t.hour, t.minute)
 

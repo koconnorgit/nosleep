@@ -61,7 +61,8 @@ touch "${ICON_DIR%/scalable/status}"   # nudge icon-theme caches
 
 echo "==> Installing desktop entry ..."
 mkdir -p "$APP_DIR"
-cp "$HERE/nosleep.desktop" "$APP_DIR/nosleep.desktop"
+# Plasma's session PATH usually lacks ~/.local/bin, so write the absolute path.
+sed "s|^Exec=nosleep |Exec=$BIN_DIR/nosleep |" "$HERE/nosleep.desktop" > "$APP_DIR/nosleep.desktop"
 command -v update-desktop-database >/dev/null && update-desktop-database -q "$APP_DIR" || true
 
 echo "==> Installing systemd user service ..."

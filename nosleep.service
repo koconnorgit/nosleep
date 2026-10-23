@@ -1,0 +1,26 @@
+# systemd USER service for nosleep.
+# Installed by install.sh to ~/.config/systemd/user/nosleep.service
+#
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now nosleep
+#   journalctl --user -u nosleep -f
+
+[Unit]
+Description=nosleep — scheduled sleep inhibitor for KDE Plasma
+PartOf=graphical-session.target
+After=graphical-session.target plasma-powerdevil.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/nosleep
+Restart=on-failure
+RestartSec=5
+# Give the app a moment to release its PowerDevil cookie on stop.
+TimeoutStopSec=10
+# Safety net; graphical-session.target normally imports these already.
+Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=nosleep
+GenericName=Sleep inhibitor
+Comment=Keep the PC awake on a daily schedule
+Exec=nosleep --settings
+Icon=nosleep-awake
+Terminal=false
+Categories=Utility;System;Qt;KDE;
+Keywords=sleep;suspend;inhibit;caffeine;awake;schedule;
+StartupNotify=false
+X-KDE-StartupNotify=false

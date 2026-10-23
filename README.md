@@ -92,6 +92,10 @@ Logs: `journalctl --user -u nosleep -f`.
 - Exactly one inhibit cookie is held at a time. If PowerDevil restarts the
   cookie is void; nosleep watches `NameOwnerChanged` and re-inhibits. The
   cookie is released on quit and on SIGTERM.
+- The tray icon is rendered from the bundled SVGs in the current palette's
+  text colour and handed to Plasma as pixmaps. Theme-name lookups would let
+  Plasma recolour it, but plasmashell only scans icon directories at startup,
+  so a freshly installed icon shows as an empty tray slot until Plasma restarts.
 - The inhibition shows up in Plasma's battery/power widget as "nosleep is
   blocking sleep", next to any other app's. nosleep never *causes* a suspend;
   it only ever blocks one.

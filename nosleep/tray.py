@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QPainter, QPalette, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
@@ -16,9 +16,12 @@ log = logging.getLogger(__name__)
 
 ICON_DIR = Path(__file__).parent / "icons"
 
-# Theme icon names (installed by install.sh into hicolor). Using theme names
-# lets Plasma recolour the SVGs to match the panel; the file fallback renders
-# them ourselves with the palette text colour.
+# We render the SVGs ourselves in the palette's text colour and hand Plasma
+# pixmaps (Qt ships them via the SNI IconThemePath mechanism). Passing theme
+# names instead would let Plasma recolour the icons, but plasmashell only
+# learns about icon-theme directories at startup, so a freshly installed icon
+# shows up as a blank tray slot until Plasma is restarted. Pixmaps always work.
+# The installed theme icons (nosleep-awake/-asleep) remain for the launcher.
 THEME_AWAKE = "nosleep-awake"
 THEME_ASLEEP = "nosleep-asleep"
 FILE_AWAKE = ICON_DIR / "eye-open.svg"
@@ -41,14 +44,14 @@ def _render_svg(path: Path) -> QIcon:
     return icon
 
 
-def load_icon(theme_name: str, file_fallback: Path) -> QIcon:
+def load_icon(theme_name: str, svg: Path) -> QIcon:
+    if svg.exists():
+        log.debug("icon %s: rendered from %s", theme_name, svg)
+        return _render_svg(svg)
     if QIcon.hasThemeIcon(theme_name):
         log.debug("icon %s: from theme", theme_name)
         return QIcon.fromTheme(theme_name)
-    if file_fallback.exists():
-        log.debug("icon %s: rendered from %s", theme_name, file_fallback)
-        return _render_svg(file_fallback)
-    log.warning("icon %s: not installed and %s missing — using Breeze fallback", theme_name, file_fallback)
+    log.warning("icon %s: %s missing and not in theme — using Breeze fallback", theme_name, svg)
     # Last resort: Breeze's own suspend status icons.
     breeze = "system-suspend-inhibited" if "awake" in theme_name else "system-suspend-uninhibited"
     return QIcon.fromTheme(breeze)
@@ -61,10 +64,10 @@ class Tray(QObject):
     def __init__(self, engine: Engine, parent: QObject | None = None):
         super().__init__(parent)
         self.engine = engine
-        self.icon_awake = load_icon(THEME_AWAKE, FILE_AWAKE)
-        self.icon_asleep = load_icon(THEME_ASLEEP, FILE_ASLEEP)
+        self._load_icons()
 
         self.tray = QSystemTrayIcon(self.icon_asleep, self)
+        QApplication.instance().installEventFilter(self)  # re-render on colour-scheme change
         self.menu = QMenu()
         self._build_menu()
         self.tray.setContextMenu(self.menu)
@@ -97,6 +100,19 @@ class Tray(QObject):
         self.mode_group.addAction(act)
         self.menu.addAction(act)
         return act
+
+    # ----- icons ----------------------------------------------------------------
+
+    def _load_icons(self) -> None:
+        self.icon_awake = load_icon(THEME_AWAKE, FILE_AWAKE)
+        self.icon_asleep = load_icon(THEME_ASLEEP, FILE_ASLEEP)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt override)
+        if event.type() == QEvent.Type.ApplicationPaletteChange:
+            log.debug("palette changed — re-rendering tray icons")
+            self._load_icons()
+            self.refresh()
+        return False
 
     # ----- state ----------------------------------------------------------------
 

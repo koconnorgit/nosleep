@@ -49,16 +49,14 @@ APP_NAME = "nosleep"
 
 def _demarshal_aas(arg: QDBusArgument) -> list[list[str]]:
     """QDBusArgument of D-Bus type 'aas' -> list of lists of str."""
+    # Each element is an 'as', which asVariant() hands back as a Python list
+    # directly. PySide6 6.12 binds endArray() to the write-mode overload, so
+    # calling it on a reply logs "QDBusArgument: write from a read-only object";
+    # we never read past the array, so simply don't close it.
     out: list[list[str]] = []
     arg.beginArray()
     while not arg.atEnd():
-        arg.beginArray()
-        inner: list[str] = []
-        while not arg.atEnd():
-            inner.append(str(arg.asVariant()))
-        arg.endArray()
-        out.append(inner)
-    arg.endArray()
+        out.append([str(x) for x in (arg.asVariant() or [])])
     return out
 
 

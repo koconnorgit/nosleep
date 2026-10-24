@@ -24,7 +24,7 @@ import logging
 import subprocess
 
 from PySide6.QtCore import Q_ARG, QMetaObject, QObject, Qt, Signal, Slot
-from PySide6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage, QDBusServiceWatcher
+from PySide6.QtDBus import QDBusArgument, QDBusConnection, QDBusInterface, QDBusMessage, QDBusServiceWatcher
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +36,47 @@ SS_SERVICE = "org.freedesktop.ScreenSaver"
 SS_PATH = "/ScreenSaver"
 SS_IFACE = "org.freedesktop.ScreenSaver"
 
+# PowerDevil's policy agent: lists *every* inhibition it currently honours,
+# ours included, as (app, reason) pairs. Used to tell the user when some other
+# app (Firefox with a stale "Playing audio" lock, say) will keep the PC up even
+# though we've let go. It emits no change signal for these, so callers poll.
+PA_SERVICE = "org.kde.Solid.PowerManagement.PolicyAgent"
+PA_PATH = "/org/kde/Solid/PowerManagement/PolicyAgent"
+PA_IFACE = "org.kde.Solid.PowerManagement.PolicyAgent"
+
 APP_NAME = "nosleep"
+
+
+def _demarshal_aas(arg: QDBusArgument) -> list[list[str]]:
+    """QDBusArgument of D-Bus type 'aas' -> list of lists of str."""
+    out: list[list[str]] = []
+    arg.beginArray()
+    while not arg.atEnd():
+        arg.beginArray()
+        inner: list[str] = []
+        while not arg.atEnd():
+            inner.append(str(arg.asVariant()))
+        arg.endArray()
+        out.append(inner)
+    arg.endArray()
+    return out
+
+
+def other_inhibitions(rows: list[list[str]], own: str = APP_NAME) -> list[tuple[str, str]]:
+    """Filter PolicyAgent rows down to (app, reason) pairs that aren't ours, deduplicated."""
+    seen: set[tuple[str, str]] = set()
+    result: list[tuple[str, str]] = []
+    for row in rows:
+        app = row[0] if row else ""
+        reason = row[1] if len(row) > 1 else ""
+        if not app or app == own:
+            continue
+        key = (app, reason)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(key)
+    return result
 
 
 class _Cookie:
@@ -193,6 +233,27 @@ class Inhibitor(QObject):
     @property
     def is_power_inhibited(self) -> bool:
         return self.power.held or self.fallback.held
+
+    def other_inhibitions(self) -> list[tuple[str, str]]:
+        """(app, reason) for every inhibition PowerDevil holds that isn't ours.
+
+        Empty when the policy agent isn't on the bus or the call fails: we'd
+        rather say nothing than something wrong.
+        """
+        if not self.pm_available():
+            return []
+        reply = QDBusInterface(PA_SERVICE, PA_PATH, PA_IFACE, self.bus).call("ListInhibitions")
+        if reply.type() != QDBusMessage.MessageType.ReplyMessage or not reply.arguments():
+            log.debug("ListInhibitions failed: %s", reply.errorMessage() or reply.type())
+            return []
+        arg = reply.arguments()[0]
+        if not isinstance(arg, QDBusArgument):
+            return []
+        try:
+            return other_inhibitions(_demarshal_aas(arg))
+        except Exception as e:  # noqa: BLE001 — demarshalling quirk, never fatal
+            log.debug("ListInhibitions demarshal failed: %s", e)
+            return []
 
     def shutdown(self) -> None:
         self.want_power = self.want_screen = False

@@ -29,6 +29,22 @@ MODE_AWAKE = "awake"
 MODE_SLEEP = "sleep"
 
 
+def blockers_headline(blockers: list[tuple[str, str]]) -> str:
+    """'firefox is blocking it' / 'firefox and vlc are blocking it' / '3 apps are blocking it'."""
+    apps = sorted({app for app, _ in blockers})
+    if len(apps) == 1:
+        return f"{apps[0]} is blocking it"
+    if len(apps) == 2:
+        return f"{apps[0]} and {apps[1]} are blocking it"
+    return f"{len(apps)} apps are blocking it"
+
+
+def blocker_lines(blockers: list[tuple[str, str]], awake: bool) -> list[str]:
+    """One tooltip line per foreign inhibition."""
+    prefix = "Also blocking sleep" if awake else "Blocking sleep"
+    return [f"{prefix}: {app}" + (f" ({reason})" if reason else "") for app, reason in blockers]
+
+
 class Engine(QObject):
     #: emitted after every evaluation (tooltip/menu refresh)
     updated = Signal()
@@ -42,6 +58,8 @@ class Engine(QObject):
         self.override: Override | None = None
         self.state: State = State(False, "disabled", None)
         self._last_awake: bool | None = None
+        #: other apps' inhibitions as of the last evaluate(), (app, reason) pairs
+        self.blockers: list[tuple[str, str]] = []
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -78,8 +96,22 @@ class Engine(QObject):
             self.flipped.emit(st.awake)
         self._last_awake = st.awake
 
+        self._poll_blockers()
         self._arm(now)
         self.updated.emit()
+
+    def _poll_blockers(self) -> None:
+        """Refresh the list of *other* apps blocking sleep; log changes so the
+        journal shows who kept the PC up overnight."""
+        found = self.inhibitor.other_inhibitions()
+        if found != self.blockers:
+            for app, reason in found:
+                if (app, reason) not in self.blockers:
+                    log.info("another app is blocking sleep: %s (%s)", app, reason or "no reason given")
+            for app, reason in self.blockers:
+                if (app, reason) not in found:
+                    log.info("no longer blocking sleep: %s (%s)", app, reason or "no reason given")
+            self.blockers = found
 
     def _arm(self, now: datetime) -> None:
         delay = TICK_CAP_S
@@ -175,10 +207,13 @@ class Engine(QObject):
         head = "Awake — sleep is blocked" if self.state.awake else "May sleep"
         if self.state.awake and not self.inhibitor.is_power_inhibited:
             head = "Awake (inhibit NOT active — PowerDevil missing?)"
+        elif not self.state.awake and self.blockers:
+            head = "May sleep — but " + blockers_headline(self.blockers)
         lines = [head, self.describe().capitalize()]
         nxt = self.next_text()
         if nxt:
             lines.append(nxt)
+        lines.extend(blocker_lines(self.blockers, self.state.awake))
         return lines
 
     # ----- resume hook --------------------------------------------------------

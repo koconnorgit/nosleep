@@ -17,7 +17,12 @@ the same way `kde-inhibit --power` or a media player does.
   the next scheduled transition, then the schedule takes over again.
 - **Right click** for *Awake now* / *Allow sleep now* / *Follow schedule*,
   *Settings…* and *Quit*.
-- **Tooltip** shows the current state, why, and the next transition time.
+- **Tooltip** shows the current state, why, and the next transition time. If
+  another app is holding its own sleep inhibitor (Firefox with a tab that
+  claims to be playing audio is the usual one), the tooltip says so, because
+  the PC won't sleep until that app lets go, whatever nosleep's state is.
+  `nosleep --status` prints the same lines, and the journal logs when such a
+  blocker appears or goes away.
 
 ## Requirements
 
